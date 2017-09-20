@@ -3,10 +3,10 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-ZhuSuan
-=======
+Welcome to ZhuSuan
+==================
 
-ZhuSuan is a python	library	for	**Generative Models**, built upon
+ZhuSuan is a python	library	for	**Bayesian Deep Learning**, built upon
 `Tensorflow <https://www.tensorflow.org>`_.
 Unlike existing deep learning libraries, which are mainly designed for
 supervised tasks, ZhuSuan is featured for its deep root into Bayesian
@@ -28,16 +28,20 @@ Installation
 
 ZhuSuan is still under development. Before the first stable release (1.0),
 please clone the `GitHub repository <https://github.com/thu-ml/zhusuan>`_ and
-run::
+run
+::
 
    pip install .
 
 in the main directory. This will install ZhuSuan and its dependencies
-automatically.
+automatically. ZhuSuan also requires Tensorflow version 1.0 or later. Because
+users should choose whether to install the cpu or gpu version of Tensorflow,
+we do not include it in the dependencies. See
+`Installing Tensorflow <https://www.tensorflow.org/install/>`_.
 
 If you are developing ZhuSuan, you may want to install in an "editable" or
-"develop" mode. See the Developments section in
-`README <https://github.com/thu-ml/zhusuan/blob/master/README.md>`_.
+"develop" mode. Please refer to the Contribution section in
+`README <https://github.com/thu-ml/zhusuan/blob/master/README.rst#contribution>`_.
 
 After installation, open your python console and type::
 

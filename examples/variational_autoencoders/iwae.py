@@ -25,13 +25,12 @@ from examples.utils import dataset, makedirs
 def vae(observed, n, n_x, n_z, n_particles):
     with zs.BayesianNet(observed=observed) as model:
         z_mean = tf.zeros([n, n_z])
-        z_logstd = tf.zeros([n, n_z])
-        z = zs.Normal('z', z_mean, z_logstd, n_samples=n_particles,
-                      group_event_ndims=1)
+        z = zs.Normal('z', z_mean, std=1., n_samples=n_particles,
+                      group_ndims=1)
         lx_z = layers.fully_connected(z, 500)
         lx_z = layers.fully_connected(lx_z, 500)
         x_logits = layers.fully_connected(lx_z, n_x, activation_fn=None)
-        x = zs.Bernoulli('x', x_logits, group_event_ndims=1)
+        x = zs.Bernoulli('x', x_logits, group_ndims=1)
     return model
 
 
@@ -42,8 +41,8 @@ def q_net(observed, x, n_z, n_particles):
         lz_x = layers.fully_connected(lz_x, 500)
         lz_mean = layers.fully_connected(lz_x, n_z, activation_fn=None)
         lz_logstd = layers.fully_connected(lz_x, n_z, activation_fn=None)
-        z = zs.Normal('z', lz_mean, lz_logstd, n_samples=n_particles,
-                      group_event_ndims=1)
+        z = zs.Normal('z', lz_mean, logstd=lz_logstd, n_samples=n_particles,
+                      group_ndims=1)
     return variational
 
 
@@ -65,7 +64,7 @@ if __name__ == "__main__":
     # Define training/evaluation parameters
     lb_samples = 50
     ll_samples = 1000
-    epoches = 3000
+    epochs = 3000
     batch_size = 1000
     iters = x_train.shape[0] // batch_size
     learning_rate = 0.001
@@ -94,17 +93,14 @@ if __name__ == "__main__":
     variational = q_net({}, x, n_z, n_particles)
     qz_samples, log_qz = variational.query('z', outputs=True,
                                            local_log_prob=True)
-    lower_bound = tf.reduce_mean(
-        zs.iwae(log_joint, {'x': x_obs}, {'z': [qz_samples, log_qz]}, axis=0))
+    lower_bound = zs.variational.importance_weighted_objective(
+        log_joint, {'x': x_obs}, {'z': [qz_samples, log_qz]}, axis=0)
+    cost = tf.reduce_mean(lower_bound.sgvb())
+    lower_bound = tf.reduce_mean(lower_bound)
 
     learning_rate_ph = tf.placeholder(tf.float32, shape=[], name='lr')
     optimizer = tf.train.AdamOptimizer(learning_rate_ph, epsilon=1e-4)
-    grads = optimizer.compute_gradients(-lower_bound)
-    infer = optimizer.apply_gradients(grads)
-
-    params = tf.trainable_variables()
-    for i in params:
-        print(i.name, i.get_shape())
+    infer_op = optimizer.minimize(cost)
 
     saver = tf.train.Saver(max_to_keep=10)
 
@@ -120,7 +116,7 @@ if __name__ == "__main__":
             begin_epoch = int(ckpt_file.split('.')[-2]) + 1
             saver.restore(sess, ckpt_file)
 
-        for epoch in range(begin_epoch, epoches + 1):
+        for epoch in range(begin_epoch, epochs + 1):
             time_epoch = -time.time()
             if epoch % anneal_lr_freq == 0:
                 learning_rate *= anneal_lr_rate
@@ -129,7 +125,7 @@ if __name__ == "__main__":
             for t in range(iters):
                 x_batch = x_train[t * batch_size:(t + 1) * batch_size]
                 x_batch_bin = sess.run(x_bin, feed_dict={x_orig: x_batch})
-                _, lb = sess.run([infer, lower_bound],
+                _, lb = sess.run([infer_op, lower_bound],
                                  feed_dict={x: x_batch_bin,
                                             learning_rate_ph: learning_rate,
                                             n_particles: lb_samples})

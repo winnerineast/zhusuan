@@ -23,9 +23,8 @@ def bayesianNN(observed, x, n_x, layer_sizes, n_particles):
         for i, (n_in, n_out) in enumerate(zip(layer_sizes[:-1],
                                               layer_sizes[1:])):
             w_mu = tf.zeros([1, n_out, n_in + 1])
-            w_logstd = tf.zeros([1, n_out, n_in + 1])
-            ws.append(zs.Normal('w' + str(i), w_mu, w_logstd,
-                                n_samples=n_particles, group_event_ndims=2))
+            ws.append(zs.Normal('w' + str(i), w_mu, std=1.,
+                                n_samples=n_particles, group_ndims=2))
 
         # forward
         ly_x = tf.expand_dims(
@@ -42,7 +41,7 @@ def bayesianNN(observed, x, n_x, layer_sizes, n_particles):
         y_mean = tf.squeeze(ly_x, [2, 3])
         y_logstd = tf.get_variable('y_logstd', shape=[],
                                    initializer=tf.constant_initializer(0.))
-        y = zs.Normal('y', y_mean, y_logstd)
+        y = zs.Normal('y', y_mean, logstd=y_logstd)
 
     return model, y_mean
 
@@ -59,8 +58,8 @@ def mean_field_variational(layer_sizes, n_particles):
                 'w_logstd_' + str(i), shape=[1, n_out, n_in + 1],
                 initializer=tf.constant_initializer(0.))
             ws.append(
-                zs.Normal('w' + str(i), w_mean, w_logstd,
-                          n_samples=n_particles, group_event_ndims=2))
+                zs.Normal('w' + str(i), w_mean, logstd=w_logstd,
+                          n_samples=n_particles, group_ndims=2))
     return variational
 
 
@@ -87,7 +86,7 @@ if __name__ == '__main__':
     # Define training/evaluation parameters
     lb_samples = 10
     ll_samples = 5000
-    epoches = 500
+    epochs = 500
     batch_size = 10
     iters = int(np.floor(x_train.shape[0] / float(batch_size)))
     test_freq = 10
@@ -112,13 +111,14 @@ if __name__ == '__main__':
     variational = mean_field_variational(layer_sizes, n_particles)
     qw_outputs = variational.query(w_names, outputs=True, local_log_prob=True)
     latent = dict(zip(w_names, qw_outputs))
-    lower_bound = tf.reduce_mean(
-        zs.sgvb(log_joint, {'y': y_obs}, latent, axis=0))
+    lower_bound = zs.variational.elbo(
+        log_joint, observed={'y': y_obs}, latent=latent, axis=0)
+    cost = tf.reduce_mean(lower_bound.sgvb())
+    lower_bound = tf.reduce_mean(lower_bound)
 
     learning_rate_ph = tf.placeholder(tf.float32, shape=[])
     optimizer = tf.train.AdamOptimizer(learning_rate_ph)
-    grads = optimizer.compute_gradients(-lower_bound)
-    infer = optimizer.apply_gradients(grads)
+    infer_op = optimizer.minimize(cost)
 
     # prediction: rmse & log likelihood
     observed = dict((w_name, latent[w_name][0]) for w_name in w_names)
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     # Run the inference
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for epoch in range(1, epoches + 1):
+        for epoch in range(1, epochs + 1):
             time_epoch = -time.time()
             if epoch % anneal_lr_freq == 0:
                 learning_rate *= anneal_lr_rate
@@ -146,7 +146,7 @@ if __name__ == '__main__':
                 x_batch = x_train[t * batch_size:(t + 1) * batch_size]
                 y_batch = y_train[t * batch_size:(t + 1) * batch_size]
                 _, lb = sess.run(
-                    [infer, lower_bound],
+                    [infer_op, lower_bound],
                     feed_dict={n_particles: lb_samples,
                                learning_rate_ph: learning_rate,
                                x: x_batch, y: y_batch})

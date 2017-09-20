@@ -14,8 +14,8 @@ import zhusuan as zs
 
 def toy2d_intractable_posterior(observed, n_particles):
     with zs.BayesianNet(observed=observed) as model:
-        z2 = zs.Normal('z2', 0., tf.log(1.35), n_samples=n_particles)
-        z1 = zs.Normal('z1', 0., z2)
+        z2 = zs.Normal('z2', 0., std=1.35, n_samples=n_particles)
+        z1 = zs.Normal('z1', 0., logstd=z2)
     return model
 
 
@@ -25,7 +25,7 @@ def mean_field_variational(n_particles):
         for i in range(2):
             z_mean.append(tf.Variable(-2.))
             z_logstd.append(tf.Variable(-5.))
-            _ = zs.Normal('z' + str(i + 1), z_mean[i], z_logstd[i],
+            _ = zs.Normal('z' + str(i + 1), z_mean[i], logstd=z_logstd[i],
                           n_samples=n_particles)
     return variational, z_mean, z_logstd
 
@@ -42,11 +42,13 @@ if __name__ == "__main__":
     variational, z_mean, z_logstd = mean_field_variational(n_particles)
     [qz1_samples, log_qz1], [qz2_samples, log_qz2] = variational.query(
         ['z1', 'z2'], outputs=True, local_log_prob=True)
-    lower_bound = zs.sgvb(
+
+    lower_bound = zs.variational.elbo(
         log_joint, {}, {'z1': [qz1_samples, log_qz1],
                         'z2': [qz2_samples, log_qz2]}, axis=0)
+    cost = lower_bound.sgvb()
     optimizer = tf.train.AdamOptimizer(learning_rate=0.1)
-    infer = optimizer.minimize(-lower_bound)
+    infer_op = optimizer.minimize(cost)
 
     # Set up figure.
     fig = plt.figure(figsize=(8, 8), facecolor='white')
@@ -94,7 +96,7 @@ if __name__ == "__main__":
         sess.run(tf.global_variables_initializer())
         for t in range(iters):
             _, lb, vmean, vlogstd = sess.run(
-                [infer, lower_bound, z_mean, z_logstd],
+                [infer_op, lower_bound, z_mean, z_logstd],
                 feed_dict={n_particles: 500})
             print('Iteration {}: lower bound = {}'.format(t, lb))
             draw(vmean, vlogstd)
